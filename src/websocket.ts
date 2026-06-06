@@ -404,7 +404,7 @@ export class MexcFuturesWebSocket extends EventEmitter {
    */
   unsubscribeFromFullDepth(symbol: string): void {
     const message: WebSocketMessage = {
-      method: "usub.depth.full",
+      method: "unsub.depth.full",
       param: {
         symbol,
       },

@@ -196,6 +196,35 @@ export class MexcRateLimitError extends MexcFuturesError {
 }
 
 /**
+ * Strip request secrets from a raw axios error before it is retained on `originalError`.
+ * The axios error carries the WEB token and signature in `config.headers` (and embedded in the
+ * raw `request` object), so a consumer doing `console.log(err)` / `JSON.stringify(err)` would
+ * otherwise leak the credential. Best-effort, mutates the about-to-be-wrapped error in place.
+ */
+const SENSITIVE_HEADERS = ["authorization", "x-mxc-sign", "x-mxc-nonce"];
+export function redactAxiosError<T = any>(error: T): T {
+  if (!error || typeof error !== "object") return error;
+  const e = error as any;
+  const scrub = (headers: any) => {
+    if (headers && typeof headers === "object") {
+      for (const key of Object.keys(headers)) {
+        if (SENSITIVE_HEADERS.includes(key.toLowerCase())) headers[key] = "[REDACTED]";
+      }
+    }
+  };
+  try {
+    scrub(e.config?.headers);
+    scrub(e.response?.config?.headers);
+    // The raw ClientRequest embeds the Authorization line in `_header` (a string) and is circular;
+    // drop it entirely — consumers don't need it and it would re-expose the token.
+    if (e.request) delete e.request;
+  } catch {
+    /* best-effort redaction; never throw from error handling */
+  }
+  return error;
+}
+
+/**
  * Parse axios error and convert to appropriate MEXC error
  */
 export function parseAxiosError(
@@ -203,6 +232,9 @@ export function parseAxiosError(
   endpoint?: string,
   method?: string
 ): MexcFuturesError {
+  // Redact request secrets (WEB token / signature) before this error is retained as originalError.
+  redactAxiosError(error);
+
   // Network errors (no response)
   if (error.code === "ENOTFOUND" || error.code === "ECONNREFUSED") {
     return new MexcNetworkError(error.message, error);

@@ -8,8 +8,10 @@ export interface SDKOptions {
 }
 
 /**
- * Generate MEXC crypto signature using MD5 algorithm
- * Based on GitHub code: https://github.com/user/repo
+ * Generate MEXC crypto signature using the MD5 scheme.
+ * NOTE: this is MEXC's server-dictated web-client signing scheme (reverse-engineered), not a
+ * security control — MD5 is weak and the nonce is a millisecond timestamp. It cannot be changed
+ * without breaking auth; treat the WEB `authToken` as the real bearer credential.
  * @param key WEB authentication key
  * @param obj Request object to sign
  * @returns Object with timestamp and signature

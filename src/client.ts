@@ -1,9 +1,8 @@
-import axios, { AxiosInstance, InternalAxiosRequestConfig } from "axios";
+import axios, { AxiosInstance } from "axios";
 import { ENDPOINTS } from "./utils/constants";
 import { generateHeaders } from "./utils/headers";
 import { Logger, LogLevelString } from "./utils/logger";
 import {
-  MexcFuturesError,
   MexcValidationError,
   parseAxiosError,
   formatErrorForLogging,
@@ -38,6 +37,15 @@ import {
 } from "./types/market";
 import JSONBigInt from "json-bigint";
 
+// Big-int-safe + prototype-pollution-hardened JSON parser for HTTP responses.
+// useNativeBigInt: ids > 2^53 become native `bigint` (matches the `number | bigint` types);
+// protoAction/constructorAction "ignore": drop `__proto__`/`constructor` keys from untrusted responses.
+const jsonBig = JSONBigInt({
+  useNativeBigInt: true,
+  protoAction: "ignore",
+  constructorAction: "ignore",
+});
+
 export interface MexcFuturesSDKConfig {
   authToken: string; // WEB authentication key (starts with "WEB...")
   baseURL?: string;
@@ -67,7 +75,7 @@ export class MexcFuturesSDK {
       transformResponse: [
         (data) => {
           try {
-            return JSONBigInt.parse(data);
+            return jsonBig.parse(data);
           } catch {
             return data;
           }
@@ -129,6 +137,31 @@ export class MexcFuturesSDK {
     orderParams: SubmitOrderRequest
   ): Promise<SubmitOrderResponse> {
     try {
+      // Validate params BEFORE signing/sending — this is a live-money endpoint, so a NaN/0/undefined
+      // field or a wrong enum must never reach the exchange as a signed order.
+      const p = orderParams;
+      if (!p || typeof p.symbol !== "string" || p.symbol.length === 0) {
+        throw new MexcValidationError("symbol is required", "symbol");
+      }
+      if (!Number.isFinite(p.price) || p.price < 0) {
+        throw new MexcValidationError("price must be a finite number >= 0", "price");
+      }
+      if (!Number.isFinite(p.vol) || p.vol <= 0) {
+        throw new MexcValidationError("vol must be a finite number > 0", "vol");
+      }
+      if (![1, 2, 3, 4].includes(p.side as number)) {
+        throw new MexcValidationError("side must be one of 1,2,3,4", "side");
+      }
+      if (![1, 2, 3, 4, 5, 6].includes(p.type as number)) {
+        throw new MexcValidationError("type must be one of 1..6", "type");
+      }
+      if (![1, 2].includes(p.openType as number)) {
+        throw new MexcValidationError("openType must be 1 (isolated) or 2 (cross)", "openType");
+      }
+      if (p.leverage !== undefined && (!Number.isFinite(p.leverage) || p.leverage <= 0)) {
+        throw new MexcValidationError("leverage must be a finite number > 0", "leverage");
+      }
+
       this.logger.info("🚀 Submitting order using /submit endpoint");
 
       this.logger.debug(
@@ -166,7 +199,9 @@ export class MexcFuturesSDK {
   /**
    * Cancel orders by order IDs (up to 50 orders at once)
    */
-  async cancelOrder(orderIds: number[]): Promise<CancelOrderResponse> {
+  async cancelOrder(
+    orderIds: Array<number | string | bigint>
+  ): Promise<CancelOrderResponse> {
     try {
       if (orderIds.length === 0) {
         throw new MexcValidationError(
@@ -181,6 +216,11 @@ export class MexcFuturesSDK {
         );
       }
 
+      // Serialize ids as strings: real MEXC order ids exceed 2^53 and cannot round-trip through a JS
+      // number. Pass them through (string/bigint) and stringify so the signed body and the posted body
+      // carry the exact id. The signature MUST be computed over the same payload that is sent.
+      const ids = orderIds.map((id) => String(id));
+
       // Generate headers with MEXC signature for POST request
       const headers = generateHeaders(
         {
@@ -189,12 +229,12 @@ export class MexcFuturesSDK {
           customHeaders: this.config.customHeaders,
         },
         true,
-        orderIds
+        ids
       );
 
       const response = await this.httpClient.post(
         ENDPOINTS.CANCEL_ORDER,
-        orderIds,
+        ids,
         {
           headers,
         }
@@ -316,10 +356,12 @@ export class MexcFuturesSDK {
    * @param orderId Order ID to query
    * @returns Detailed order information
    */
-  async getOrder(orderId: number | string): Promise<GetOrderResponse> {
+  async getOrder(
+    orderId: number | string | bigint
+  ): Promise<GetOrderResponse> {
     try {
       const response = await this.httpClient.get(
-        `${ENDPOINTS.GET_ORDER}/${orderId}`
+        `${ENDPOINTS.GET_ORDER}/${encodeURIComponent(String(orderId))}`
       );
       this.logger.debug("🔍 Order response:", response.data);
       return response.data;
@@ -341,7 +383,7 @@ export class MexcFuturesSDK {
   ): Promise<GetOrderResponse> {
     try {
       const response = await this.httpClient.get(
-        `${ENDPOINTS.GET_ORDER_BY_EXTERNAL_ID}/${symbol}/${externalOid}`
+        `${ENDPOINTS.GET_ORDER_BY_EXTERNAL_ID}/${encodeURIComponent(symbol)}/${encodeURIComponent(externalOid)}`
       );
       return response.data;
     } catch (error) {
@@ -384,7 +426,7 @@ export class MexcFuturesSDK {
   async getAccountAsset(currency: string): Promise<AccountAssetResponse> {
     try {
       const response = await this.httpClient.get(
-        `${ENDPOINTS.ACCOUNT_ASSET}/${currency}`
+        `${ENDPOINTS.ACCOUNT_ASSET}/${encodeURIComponent(currency)}`
       );
       return response.data;
     } catch (error) {
@@ -476,7 +518,7 @@ export class MexcFuturesSDK {
     try {
       const params = limit ? { limit } : {};
       const response = await this.httpClient.get(
-        `${ENDPOINTS.CONTRACT_DEPTH}/${symbol}`,
+        `${ENDPOINTS.CONTRACT_DEPTH}/${encodeURIComponent(symbol)}`,
         { params }
       );
       return response.data;

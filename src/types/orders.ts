@@ -7,7 +7,7 @@ export interface OrderHistoryParams {
 }
 
 export interface Order {
-  id: string;
+  id: string | bigint; // large ids exceed 2^53 and parse as BigInt; use String(id)
   symbol: string;
   side: number;
   type: string;
@@ -123,7 +123,7 @@ export interface GetOrderResponse {
   success: boolean;
   code: number;
   data: {
-    orderId: string;
+    orderId: string | bigint; // large ids exceed 2^53 and parse as BigInt; use String(orderId)
     symbol: string;
     positionId: number;
     price: number;
