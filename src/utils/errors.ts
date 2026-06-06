@@ -216,8 +216,10 @@ export function redactAxiosError<T = any>(error: T): T {
     scrub(e.config?.headers);
     scrub(e.response?.config?.headers);
     // The raw ClientRequest embeds the Authorization line in `_header` (a string) and is circular;
-    // drop it entirely — consumers don't need it and it would re-expose the token.
+    // drop BOTH copies — `e.request` and `e.response.request` (the response-bearing error is the one
+    // retained as originalError on 4xx/5xx, so its `response.request._header` would re-expose the token).
     if (e.request) delete e.request;
+    if (e.response?.request) delete e.response.request;
   } catch {
     /* best-effort redaction; never throw from error handling */
   }

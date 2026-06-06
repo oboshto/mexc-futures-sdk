@@ -532,7 +532,12 @@ export class MexcFuturesWebSocket extends EventEmitter {
   private send(message: WebSocketMessage): void {
     if (this.ws && this.isConnected) {
       const messageString = JSON.stringify(message);
-      this.logger.debug("➡️ Sending WebSocket message:", messageString);
+      // Never log credentials: the `login` message carries the API key + HMAC signature.
+      const logSafe =
+        (message as any)?.method === "login"
+          ? JSON.stringify({ ...message, param: "[REDACTED]" })
+          : messageString;
+      this.logger.debug("➡️ Sending WebSocket message:", logSafe);
       this.ws.send(messageString);
     } else {
       this.logger.error(

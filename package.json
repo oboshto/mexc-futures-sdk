@@ -1,6 +1,6 @@
 {
   "name": "mexc-futures-sdk",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "description": "Unofficial TypeScript SDK for MEXC Futures trading with maintenance bypass. Uses browser session tokens to work 24/7 even during API downtime.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

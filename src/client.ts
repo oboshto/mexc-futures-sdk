@@ -38,10 +38,12 @@ import {
 import JSONBigInt from "json-bigint";
 
 // Big-int-safe + prototype-pollution-hardened JSON parser for HTTP responses.
-// useNativeBigInt: ids > 2^53 become native `bigint` (matches the `number | bigint` types);
-// protoAction/constructorAction "ignore": drop `__proto__`/`constructor` keys from untrusted responses.
+// storeAsString: ids > 2^53 are returned as exact STRINGS (not native bigint) — this preserves
+// precision AND stays JSON.stringify-safe (native bigint throws on JSON.stringify, breaking any
+// consumer that logs/persists a response); protoAction/constructorAction "ignore": drop
+// `__proto__`/`constructor` keys from untrusted responses.
 const jsonBig = JSONBigInt({
-  useNativeBigInt: true,
+  storeAsString: true,
   protoAction: "ignore",
   constructorAction: "ignore",
 });
@@ -160,6 +162,15 @@ export class MexcFuturesSDK {
       }
       if (p.leverage !== undefined && (!Number.isFinite(p.leverage) || p.leverage <= 0)) {
         throw new MexcValidationError("leverage must be a finite number > 0", "leverage");
+      }
+      if (p.positionId !== undefined && !Number.isFinite(p.positionId)) {
+        throw new MexcValidationError("positionId must be a finite number", "positionId");
+      }
+      if (p.stopLossPrice !== undefined && (!Number.isFinite(p.stopLossPrice) || p.stopLossPrice < 0)) {
+        throw new MexcValidationError("stopLossPrice must be a finite number >= 0", "stopLossPrice");
+      }
+      if (p.takeProfitPrice !== undefined && (!Number.isFinite(p.takeProfitPrice) || p.takeProfitPrice < 0)) {
+        throw new MexcValidationError("takeProfitPrice must be a finite number >= 0", "takeProfitPrice");
       }
 
       this.logger.info("🚀 Submitting order using /submit endpoint");
